@@ -1,0 +1,3 @@
+*.pyc
+venv/
+infrastructure_home_test/internal_tests.py
