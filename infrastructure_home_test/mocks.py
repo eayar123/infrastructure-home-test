@@ -79,3 +79,5 @@ def register_mocks():
     Set the mocks so tests run without external resource access.
     """
     set_mocks(HirundoMocks())
+
+

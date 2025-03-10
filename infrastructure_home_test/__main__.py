@@ -45,17 +45,24 @@ sql_admin_service = gcp.projects.Service("sql-admin-service",
 )
 
 
-network = gcp.compute.Network("my-network",
-    name="my-compute-network",
+gke_network = gcp.compute.Network("my-gke-network",
+    name="my-compute-gke-network",
     auto_create_subnetworks=False, 
     project=project_id
 )
 
 
-subnetwork = gcp.compute.Subnetwork("my-subnetwork",
+sql_network = gcp.compute.Network("my-sql-network",
+    name="my-compute-sql-network",
+    auto_create_subnetworks=False, 
+    project=project_id
+)
+
+
+gke_subnetwork = gcp.compute.Subnetwork("my-subnetwork",
     ip_cidr_range="10.0.0.0/16",
     region=region,
-    network=network.self_link,  # Use self-link of the custom network
+    network=gke_network.self_link,  # Use self-link of the custom network
     secondary_ip_ranges=[  # Define secondary IP ranges
         gcp.compute.SubnetworkSecondaryIpRangeArgs(
             range_name="pods",
@@ -70,37 +77,23 @@ subnetwork = gcp.compute.Subnetwork("my-subnetwork",
 )
 
 
-gke_cluster = gcp.container.Cluster("my-gke-cluster",
-    initial_node_count=node_count,
-    location=region,
-    min_master_version="1.20",
-    network=network.id,
-    subnetwork=subnetwork.self_link,
-    node_config=gcp.container.ClusterNodeConfigArgs(
-        machine_type=machine_type,
-        oauth_scopes=["https://www.googleapis.com/auth/cloud-platform"],
-    )
+sql_subnetwork = gcp.compute.Subnetwork("my-sql-subnetwork",
+    ip_cidr_range="10.3.0.0/16",
+    region=region,
+    network=sql_network.self_link,  # Use self-link of the custom network
+    project=project_id
 )
 
 
-# gke_node_pool = gcp.container.NodePool("my-node-pool",
-#     cluster=gke_cluster.name,  # Replace with the cluster name you will create next
-#     location=region,
-#     initial_node_count=node_count,
-#     node_config=gcp.container.NodePoolNodeConfigArgs(
-#         machine_type=machine_type,
-#         oauth_scopes=["https://www.googleapis.com/auth/cloud-platform"],
-#         gcfs_config=gcp.container.NodePoolNodeConfigGcfsConfigArgs(
-#             enabled=True
-#         )
-#     )
-# )
-
-
-backup_plan = gcp.sql.DatabaseInstanceSettingsBackupConfigurationArgs(
-        enabled=True,
-        start_time="05:00",
-        retention_count=7
+gke_cluster = gcp.container.Cluster("my-gke-cluster",
+    initial_node_count=node_count,
+    location=region,
+    network=gke_network.id,
+    subnetwork=gke_subnetwork.self_link,
+    node_config=gcp.container.ClusterNodeConfigArgs(
+        machine_type=machine_type,
+        oauth_scopes=["https://www.googleapis.com/auth/compute"],
+    )
 )
 
 
@@ -109,7 +102,7 @@ cloud_sql_private_ip_range = gcp.compute.GlobalAddress("cloud-sql-private-ip-ran
     purpose="VPC_PEERING",
     address_type="INTERNAL",
     prefix_length=16,
-    network=network.id
+    network=sql_network.id
 )
 
 
@@ -118,42 +111,24 @@ cloud_sql_instance = gcp.sql.DatabaseInstance("cloud-sql-instance",
     settings=gcp.sql.DatabaseInstanceSettingsArgs(
         tier="db-f1-micro",
         ip_configuration=gcp.sql.DatabaseInstanceSettingsIpConfigurationArgs(
-            private_network=network.id,
+            private_network=sql_network.id,
             allocated_ip_range=cloud_sql_private_ip_range.name,
             ipv4_enabled=False,
-            require_ssl=True
+            ssl_mode="ENCRYPTED_ONLY"
         ),
-        backup_configuration=backup_plan,
+        backup_configuration=gcp.sql.DatabaseInstanceSettingsBackupConfigurationArgs(
+            enabled=True,  
+            start_time="05:00"
+        )
     )
 )
 
 
 # Create VPC peering between the GKE network and the Cloud SQL network
 vpc_peering = gcp.compute.NetworkPeering("vpc-peering",
-    network=network.id,
-    peer_network=cloud_sql_instance.private_network,
-    auto_create_routes=True,
+    network=gke_network.id,
+    peer_network=sql_network.id
 )
-
-
-# Reference VPC peering in routing tables
-gke_route = gcp.compute.Route("gke-to-cloudsql-route",
-    network=network.id,
-    dest_range="10.10.0.0/24",  # Adjust the destination range to Cloud SQL's network
-    next_hop_peering=gcp.compute.RouteNextHopPeeringArgs(
-        name=vpc_peering.name,
-    )
-)
-
-
-cloudsql_route = gcp.compute.Route("cloudsql-to-gke-route",
-    network=cloud_sql_instance.private_network,
-    dest_range=subnetwork.ip_cidr_range,
-    next_hop_peering=gcp.compute.RouteNextHopPeeringArgs(
-        name=vpc_peering.name,
-    )
-)
-
 
 
 # Export the basic services of the projects.
@@ -164,14 +139,24 @@ pulumi.export("service_networking_service", service_networking_service.service)
 pulumi.export("sql_admin_service", sql_admin_service.service)
 
 
-# Export the Network's Name and Self Link
-pulumi.export("network_name", network.name)
-pulumi.export("network_self_link", network.self_link)
+# Export the GKE Network's Name and Self Link
+pulumi.export("gke_network_name", gke_network.name)
+pulumi.export("gke_network_self_link", gke_network.self_link)
 
 
-# Export the SubNetwork's name and self-link
-pulumi.export("subnetwork_name", subnetwork.name)
-pulumi.export("subnetwork_self_link", subnetwork.self_link)
+# Export the sql Network's Name and Self Link
+pulumi.export("sql_network_name", sql_network.name)
+pulumi.export("sql_network_self_link", sql_network.self_link)
+
+
+# Export the GKE SubNetwork's name and self-link
+pulumi.export("gke_subnetwork_name", gke_subnetwork.name)
+pulumi.export("gke_subnetwork_self_link", gke_subnetwork.self_link)
+
+
+# Export the SQL SubNetwork's name and self-link
+pulumi.export("sql_subnetwork_name", sql_subnetwork.name)
+pulumi.export("sql_subnetwork_self_link", sql_subnetwork.self_link)
 
 
 # Export the cluster name and endpoint for easy access
@@ -202,10 +187,6 @@ users:
       name: gcp
 """)
 pulumi.export("kubeconfig", kubeconfig)
-
-
-# Export the node pool name
-# pulumi.export("node_pool_name", gke_node_pool.name)
 
 
 # Export the Cloud SQL instance connection name
