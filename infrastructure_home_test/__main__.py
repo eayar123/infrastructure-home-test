@@ -125,9 +125,15 @@ cloud_sql_instance = gcp.sql.DatabaseInstance("cloud-sql-instance",
 
 
 # Create VPC peering between the GKE network and the Cloud SQL network
-vpc_peering = gcp.compute.NetworkPeering("vpc-peering",
+vpc_peering_gke_to_sql = gcp.compute.NetworkPeering("vpc-peering",
     network=gke_network.id,
     peer_network=sql_network.id
+)
+
+
+vpc_peering_sql_to_gke = gcp.compute.NetworkPeering("vpc-peering",
+    network=sql_network.id,
+    peer_network=gke_network.id
 )
 
 
@@ -194,7 +200,9 @@ pulumi.export("cloud_sql_instance_connection_name", cloud_sql_instance.connectio
 
 
 # Export the VPC peering name
-pulumi.export("vpc_peering_name", vpc_peering.name)
+pulumi.export("vpc_peering_name", vpc_peering_gke_to_sql.name)
+pulumi.export("vpc_peering_name", vpc_peering_sql_to_gke.name)
+
 
 
 
